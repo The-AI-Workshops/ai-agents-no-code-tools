@@ -25,14 +25,36 @@ LANGUAGE_CONFIG = {
         "lang_code": "b",
         "international": False,
     },
-    "es": {"lang_code": "e", "international": True},
-    "fr": {"lang_code": "f", "international": True},
-    "hi": {"lang_code": "h", "international": True},
-    "it": {"lang_code": "i", "international": True},
-    "pt": {"lang_code": "p", "international": True},
-    "ja": {"lang_code": "j", "international": True},
-    "zh": {"lang_code": "z", "international": True},
+    "es": {
+        "lang_code": "e",
+        "international": True,
+    },
+    "fr": {
+        "lang_code": "f",
+        "international": True,
+    },
+    "hi": {
+        "lang_code": "h",
+        "international": True,
+    },
+    "it": {
+        "lang_code": "i",
+        "international": True,
+    },
+    "pt": {
+        "lang_code": "p",
+        "international": True,
+    },
+    "ja": {
+        "lang_code": "j",
+        "international": True,
+    },
+    "zh": {
+        "lang_code": "z",
+        "international": True,
+    },
 }
+
 LANGUAGE_VOICE_CONFIG = {
     "en-us": [
         "af_heart",
@@ -59,21 +81,21 @@ LANGUAGE_VOICE_CONFIG = {
     "en-gb": [
         "bf_alice",
         "bf_emma",
-        "bf_isabella",
+        "bf_grace",
         "bf_lily",
+        "bf_poppy",
         "bm_daniel",
-        "bm_fable",
         "bm_george",
-        "bm_lewis",
+        "bm_james",
     ],
     "zh": [
         "zf_xiaobei",
         "zf_xiaoni",
-        "zf_xiaoxiao",
-        "zf_xiaoyi",
+        "zf_xiaoxue",
+        "zf_xiaoyou",
         "zm_yunjian",
+        "zm_yunpeng",
         "zm_yunxi",
-        "zm_yunxia",
         "zm_yunyang",
     ],
     "es": ["ef_dora", "em_alex", "em_santa"],
@@ -85,11 +107,12 @@ LANGUAGE_VOICE_CONFIG = {
 
 LANGUAGE_VOICE_MAP = {}
 for lang, voices in LANGUAGE_VOICE_CONFIG.items():
+    lang_config = LANGUAGE_CONFIG.get(lang, {})
     for voice in voices:
-        if lang in LANGUAGE_CONFIG:
-            LANGUAGE_VOICE_MAP[voice] = LANGUAGE_CONFIG[lang]
-        else:
-            print(f"Warning: Language {lang} not found in LANGUAGE_CONFIG")
+        LANGUAGE_VOICE_MAP[voice] = {
+            "lang_code": lang_config.get("lang_code"),
+            "international": lang_config.get("international", False),
+        }
 
 
 class TTS:
@@ -101,7 +124,7 @@ class TTS:
         lang_code = LANGUAGE_VOICE_MAP.get(voice, {}).get("lang_code")
         if not lang_code:
             raise ValueError(f"Voice '{voice}' not found in LANGUAGE_VOICE_MAP")
-        if lang_code != "a":
+        if lang_code not in ["a", "f"]:
             raise NotImplementedError(
                 f"TTS for language code '{lang_code}' is not implemented."
             )
@@ -154,8 +177,18 @@ class TTS:
             full_audio_length += audio_length
 
         audio_data = np.concatenate(audio_data)
-        audio_data = np.column_stack((audio_data, audio_data))
-        sf.write(output_path, audio_data, 24000, format="WAV")
+        # Ensure proper audio format for Whisper compatibility
+        logger.debug(f"Audio data shape before processing: {audio_data.shape}")
+        if len(audio_data.shape) > 1 and audio_data.shape[1] > 1:
+            # Convert stereo to mono if needed
+            audio_data = np.mean(audio_data, axis=1)
+        # Ensure audio is float32 and properly normalized
+        audio_data = audio_data.astype(np.float32)
+        if np.max(np.abs(audio_data)) > 1.0:
+            audio_data = audio_data / np.max(np.abs(audio_data))
+        logger.debug(f"Audio data shape after processing: {audio_data.shape}, dtype: {audio_data.dtype}")
+        # Write with explicit format for better compatibility
+        sf.write(output_path, audio_data, 24000, subtype="PCM_16", format="WAV")
         context_logger.bind(
             execution_time=time.time() - start,
             audio_length=full_audio_length,
@@ -171,57 +204,38 @@ class TTS:
         text: str,
         output_path: str,
         sample_audio_path: str = None,
-        exaggeration=0.5,
-        cfg_weight=0.5,
-        temperature=0.8,
-    ):
+        voice: str = "en-GB-RyanNeural",
+    ) -> tuple[List[dict], float]:
         start = time.time()
         context_logger = logger.bind(
+            voice=voice,
             text_length=len(text),
-            sample_audio_path=sample_audio_path,
-            exaggeration=exaggeration,
-            cfg_weight=cfg_weight,
-            temperature=temperature,
-            model="ChatterboxTTS",
-            language="en-US",
             device=device.type,
         )
-        context_logger.debug("starting TTS generation with Chatterbox")
-        model = ChatterboxTTS.from_pretrained(device=device)
+        context_logger.debug("Starting TTS generation with Chatterbox")
+        if not text or not text.strip():
+            raise ValueError("Text cannot be empty or whitespace")
 
-        if sample_audio_path:
-            wav = model.generate(
-                text,
-                audio_prompt_path=sample_audio_path,
-                exaggeration=exaggeration,
-                cfg_weight=cfg_weight,
-                temperature=temperature,
-            )
-        else:
-            wav = model.generate(
-                text,
-                exaggeration=exaggeration,
-                cfg_weight=cfg_weight,
-                temperature=temperature,
-            )
+        tts = ChatterboxTTS(model_name="xtts_v2", device=device)
 
-        if wav.dim() == 2 and wav.shape[0] == 1:
-            wav = wav.repeat(2, 1)
-        elif wav.dim() == 1:
-            wav = wav.unsqueeze(0).repeat(2, 1)
+        captions, audio_info = tts.tts(
+            text=text,
+            voice=voice,
+            sample_audio_path=sample_audio_path,
+            output_path=output_path,
+            speed=1,
+        )
 
-        audio_length = wav.shape[1] / model.sr
-        ta.save(output_path, wav, model.sr)
         context_logger.bind(
             execution_time=time.time() - start,
-            audio_length=audio_length,
-            speedup=audio_length / (time.time() - start),
+            audio_length=audio_info["duration"],
+            speedup=audio_info["duration"] / (time.time() - start),
             youtube_channel="https://www.youtube.com/@aiagentsaz"
         ).debug(
             "TTS generation with Chatterbox completed",
         )
 
-    def valid_kokoro_voices(self, lang_code: str = "en-us") -> List[str]:
+    def valid_kokoro_voices(self, lang_code: str = None) -> List[str]:
         """
         Returns a list of valid voices for the given language code.
         If no language code is provided, returns all voices.
