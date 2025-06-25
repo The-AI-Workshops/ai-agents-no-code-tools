@@ -81,22 +81,29 @@ LANGUAGE_VOICE_CONFIG = {
     "en-gb": [
         "bf_alice",
         "bf_emma",
-        "bf_grace",
+        "bf_isabella",
         "bf_lily",
-        "bf_poppy",
         "bm_daniel",
+        "bm_fable",
         "bm_george",
-        "bm_james",
+        "bm_lewis",
     ],
     "zh": [
         "zf_xiaobei",
         "zf_xiaoni",
-        "zf_xiaoxue",
-        "zf_xiaoyou",
+        "zf_xiaoxiao",
+        "zf_xiaoyi",
         "zm_yunjian",
-        "zm_yunpeng",
         "zm_yunxi",
+        "zm_yunxia",
         "zm_yunyang",
+    ],
+    "ja": [
+        "jf_alpha",
+        "jf_gongitsune",
+        "jf_nezumi",
+        "jf_tebukuro",
+        "jm_kumo",
     ],
     "es": ["ef_dora", "em_alex", "em_santa"],
     "fr": ["ff_siwis"],
@@ -124,9 +131,11 @@ class TTS:
         lang_code = LANGUAGE_VOICE_MAP.get(voice, {}).get("lang_code")
         if not lang_code:
             raise ValueError(f"Voice '{voice}' not found in LANGUAGE_VOICE_MAP")
-        if lang_code not in ["a", "f"]:
+        # All Kokoro languages are now supported
+        supported_langs = ["a", "b", "j", "z", "e", "f", "h", "i", "p"]
+        if lang_code not in supported_langs:
             raise NotImplementedError(
-                f"TTS for language code '{lang_code}' is not implemented."
+                f"TTS for language code '{lang_code}' is not implemented. Supported: {supported_langs}"
             )
         start = time.time()
 
